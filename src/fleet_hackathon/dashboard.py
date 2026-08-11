@@ -160,6 +160,7 @@ _PAGE_SHELL = """<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Fortified Enterprise Fleet — live demo dashboard</title>
+<link rel="icon" type="image/png" sizes="32x32" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAB4UlEQVR4nO2SS0hUURzGf+dcZwYcH0mKMwiWgYyLfJEroQx6YGIgZAtxZYs2bQwR3IpG0EZcRJtEcJW2d1XSAxHaOZOGIOXSRMECxbG58r/3lt3Ru9C3QX343A45zvf/30gRIgQ/z9UMK0VSoEtZ9PZAUP91ds+me9JqwA+KKg6d2KnECqFbdNRR1eDPH74zvyapBY1uFNPxxVyJu/WZbnKfya1Fxi4xuQiuwf+E+gC79p5eNTG5H255izG7/K8E8umOcnITf6YonnRxehtUWrlJ3mxmAeNFEcDqvBzB6pL+PKE7gaPTFWSGaS/Rc5lMY9sTPD1KX3Ncja0F6YpwcfHJEt9V8crcMnLFRyafPohI40arG0ztsDQdSrj/M4SKxIys8mzBYZvUBXHtIgY3ngNLbUWorBFzgeRPkQMMchZYvM2zeoWE91CZnMSvqacN2lWfgoZKxLSsrmXku7v7DuJ2kFD1kp07Zd41cOt12zvSaUK6XWilKle0SxukKqSa8+MtHu6l4jm84aEbK9laJ73656fgADu6OsqeNjEyyX2Dj1GOXtZjP5WrlZL4LkM37bESzwqk2hJ8ivL7DLpzfz/cxYodSoySHZSBFrL6E4a67yC3Ca44mNkiBAhQnBWHAGiEqHzzg2zZwAAAABJRU5ErkJggg==">
 <style>
   @font-face {{
     font-family: 'JetBrains Mono';
