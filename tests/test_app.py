@@ -89,3 +89,19 @@ def test_auth_failure_is_logged(caplog):
     with caplog.at_level(logging.WARNING, logger="fleet_hackathon.app"):
         client.post("/run/outreach_check", headers={"x-forwarded-for": "9.9.9.9"})
     assert any("rejected request" in record.message and "9.9.9.9" in record.message for record in caplog.records)
+
+
+def test_reseed_requires_a_token():
+    """Same contract as the other mutating routes: /reseed wipes and rewrites
+    every demo collection, so an unauthenticated caller must never reach it."""
+    response = client.post("/reseed")
+    assert response.status_code == 403
+
+
+def test_reseed_is_rate_limited():
+    limit = app_module._RATE_LIMITS["mutating"]
+    for _ in range(limit):
+        client.post("/reseed")
+
+    response = client.post("/reseed")
+    assert response.status_code == 429

@@ -38,7 +38,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
-from fleet_hackathon import actions, dashboard, runtime
+from fleet_hackathon import actions, dashboard, runtime, seed_demo_data
 from fleet_hackathon.firestore_client import get_db
 
 logger = logging.getLogger(__name__)
@@ -57,7 +57,7 @@ app = FastAPI(title="Fortified Enterprise Fleet", lifespan=_lifespan)
 _RATE_LIMIT_WINDOW_SECONDS = 60
 _RATE_LIMITS = {
     "public": 30,  # GET / and /health — dashboard viewing
-    "mutating": 10,  # the 4 token-gated POST routes
+    "mutating": 10,  # the 5 token-gated POST routes
 }
 _request_log: dict[tuple[str, str], list[float]] = defaultdict(list)
 
@@ -124,6 +124,23 @@ def run_all(request: Request, x_fleet_runtime_token: str | None = Header(default
     _check_rate_limit(request, "mutating")
     _require_runtime_token(request, x_fleet_runtime_token)
     return runtime.run_all_cycles(get_db())
+@app.post("/reseed")
+def reseed(request: Request, x_fleet_runtime_token: str | None = Header(default=None)) -> dict:
+    """Resets the demo dataset to its initial state.
+
+    Exists because Cloud Scheduler can only call HTTP endpoints, and seeding
+    was previously CLI-only (seed_demo_data.main). The scheduled fleet-reseed
+    job calls this daily: the 5 agents run every 30 minutes and would
+    otherwise work through the finite demo dataset within days, leaving a
+    static dashboard for the rest of the judging window.
+
+    Clears COLLECTION_AUDIT_LOG and COLLECTION_CASH_EVENTS as well as the
+    entity collections (see seed_demo_data's own notes) so a reseed is a true
+    reset, not an overlay on stale history.
+    """
+    _check_rate_limit(request, "mutating")
+    _require_runtime_token(request, x_fleet_runtime_token)
+    return seed_demo_data.seed(get_db())
 
 
 @app.post("/mark-paid/{invoice_id}")
