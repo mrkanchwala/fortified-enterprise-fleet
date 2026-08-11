@@ -6,6 +6,7 @@ token on a mutating route for the mutating bucket, since both the rate-limit
 429 and the auth 403 short-circuit before any Firestore call happens."""
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from fleet_hackathon import app as app_module
@@ -105,3 +106,41 @@ def test_reseed_is_rate_limited():
 
     response = client.post("/reseed")
     assert response.status_code == 429
+
+
+class _FakeRequest:
+    """Minimal stand-in — _require_runtime_token only reads the request to
+    resolve a caller IP for the rejection log."""
+
+    def __init__(self, ip="7.7.7.7"):
+        self.headers = {"x-forwarded-for": ip}
+        self.client = None
+
+
+def test_token_with_trailing_newline_in_env_still_matches(monkeypatch):
+    """Regression guard for the 2026-08-11 production bug: the Secret Manager
+    payload was created with `echo`, so it carried a trailing newline. An HTTP
+    header value can never contain a bare newline, so the expected token could
+    never equal any header value and every token-gated route was unreachable.
+
+    Unit-tests the auth helper directly — driving this through a route would
+    proceed past auth into a real Firestore call."""
+    monkeypatch.setenv("FLEET_RUNTIME_TOKEN", "abc123\n")
+    # must not raise
+    app_module._require_runtime_token(_FakeRequest(), "abc123")
+
+
+def test_wrong_token_is_still_rejected_after_stripping(monkeypatch):
+    """The strip must not weaken the check into accepting anything."""
+    monkeypatch.setenv("FLEET_RUNTIME_TOKEN", "abc123\n")
+    with pytest.raises(HTTPException) as excinfo:
+        app_module._require_runtime_token(_FakeRequest(), "not-the-token")
+    assert excinfo.value.status_code == 403
+
+
+def test_whitespace_only_token_is_rejected(monkeypatch):
+    """Stripping must not turn a blank header into a match against a blank env."""
+    monkeypatch.setenv("FLEET_RUNTIME_TOKEN", "   \n")
+    with pytest.raises(HTTPException) as excinfo:
+        app_module._require_runtime_token(_FakeRequest(), "   ")
+    assert excinfo.value.status_code == 403

@@ -90,8 +90,14 @@ def _check_rate_limit(request: Request, bucket: str) -> None:
 
 
 def _require_runtime_token(request: Request, x_fleet_runtime_token: str | None) -> None:
-    expected = os.environ.get("FLEET_RUNTIME_TOKEN")
-    if not expected or not x_fleet_runtime_token or not hmac.compare_digest(x_fleet_runtime_token, expected):
+    # Secret Manager payloads are routinely created with `echo`, which appends a
+    # trailing newline, and Cloud Run injects the payload verbatim. An HTTP header
+    # value can never contain a bare newline, so an unstripped expected token makes
+    # every token-gated route permanently unreachable -- which is exactly what
+    # happened in production on 2026-08-11. Strip both sides defensively.
+    expected = (os.environ.get("FLEET_RUNTIME_TOKEN") or "").strip()
+    provided = (x_fleet_runtime_token or "").strip()
+    if not expected or not provided or not hmac.compare_digest(provided, expected):
         logger.warning(f"rejected request: missing or invalid runtime token, ip={_client_ip(request)}")
         raise HTTPException(status_code=403, detail="missing or invalid runtime token")
 
