@@ -38,7 +38,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
-from fleet_hackathon import actions, dashboard, runtime, seed_demo_data
+from fleet_hackathon import actions, dashboard, demo_stream, runtime, seed_demo_data
 from fleet_hackathon.firestore_client import get_db
 
 logger = logging.getLogger(__name__)
@@ -57,7 +57,7 @@ app = FastAPI(title="Fortified Enterprise Fleet", lifespan=_lifespan)
 _RATE_LIMIT_WINDOW_SECONDS = 60
 _RATE_LIMITS = {
     "public": 30,  # GET / and /health — dashboard viewing
-    "mutating": 10,  # the 5 token-gated POST routes
+    "mutating": 10,  # the 6 token-gated POST routes
 }
 _request_log: dict[tuple[str, str], list[float]] = defaultdict(list)
 
@@ -124,6 +124,25 @@ def run_all(request: Request, x_fleet_runtime_token: str | None = Header(default
     _check_rate_limit(request, "mutating")
     _require_runtime_token(request, x_fleet_runtime_token)
     return runtime.run_all_cycles(get_db())
+@app.post("/tick")
+def tick(request: Request, x_fleet_runtime_token: str | None = Header(default=None)) -> dict:
+    """One scheduled beat of the live demo: inject work, run the fleet, prune.
+
+    Called by the fleet-tick Cloud Scheduler job every 30 minutes. The three
+    steps are deliberately one endpoint rather than three scheduled jobs, so
+    they can never interleave or run out of order (pruning before the agents
+    have acted would delete work nobody ever saw happen).
+
+    Injection and pruning are pure data operations in demo_stream — they never
+    trigger or modify agents, preserving the "system never modifies its own
+    fleet" boundary the entry is built around.
+    """
+    _check_rate_limit(request, "mutating")
+    _require_runtime_token(request, x_fleet_runtime_token)
+    db = get_db()
+    stream = demo_stream.tick(db)
+    agents = runtime.run_all_cycles(db)
+    return {"stream": stream, "agents": agents}
 @app.post("/reseed")
 def reseed(request: Request, x_fleet_runtime_token: str | None = Header(default=None)) -> dict:
     """Resets the demo dataset to its initial state.
