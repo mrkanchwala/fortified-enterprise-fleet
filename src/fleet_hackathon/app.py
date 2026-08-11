@@ -4,7 +4,7 @@ the build plan's single-service architecture call.
 
 Route security model (deliberate, since Cloud Run's `--allow-unauthenticated`
 is service-wide, not per-route, and the plan commits to one service):
-- `GET /` and `GET /healthz` — public, read-only, no secret required.
+- `GET /` and `GET /health` — public, read-only, no secret required.
 - `POST /run/{agent_name}` — requires the `X-Fleet-Runtime-Token` header to
   match `FLEET_RUNTIME_TOKEN` (sourced from Secret Manager at deploy time,
   never hardcoded — see Step 13's README credential-handling section). Cloud
@@ -56,7 +56,7 @@ app = FastAPI(title="Fortified Enterprise Fleet", lifespan=_lifespan)
 
 _RATE_LIMIT_WINDOW_SECONDS = 60
 _RATE_LIMITS = {
-    "public": 30,  # GET / and /healthz — dashboard viewing
+    "public": 30,  # GET / and /health — dashboard viewing
     "mutating": 10,  # the 4 token-gated POST routes
 }
 _request_log: dict[tuple[str, str], list[float]] = defaultdict(list)
@@ -96,8 +96,8 @@ def _require_runtime_token(request: Request, x_fleet_runtime_token: str | None) 
         raise HTTPException(status_code=403, detail="missing or invalid runtime token")
 
 
-@app.get("/healthz")
-def healthz(request: Request) -> dict:
+@app.get("/health")
+def health(request: Request) -> dict:
     _check_rate_limit(request, "public")
     return {"status": "ok"}
 

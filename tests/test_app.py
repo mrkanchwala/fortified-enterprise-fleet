@@ -1,7 +1,7 @@
 """FastAPI route-layer tests (2026-08-10, CSO HIGH fix) — rate limiting and
 the auth-token check. Scoped to routes/paths that never reach get_db(), since
 app.py's routes call the real Firestore client directly (not
-dependency-injected) — /healthz for the public bucket, and a wrong/missing
+dependency-injected) — /health for the public bucket, and a wrong/missing
 token on a mutating route for the mutating bucket, since both the rate-limit
 429 and the auth 403 short-circuit before any Firestore call happens."""
 
@@ -24,26 +24,26 @@ def _reset_rate_limit_state():
 
 def test_public_route_allows_requests_under_the_limit():
     for _ in range(app_module._RATE_LIMITS["public"]):
-        response = client.get("/healthz")
+        response = client.get("/health")
         assert response.status_code == 200
 
 
 def test_public_route_blocks_once_over_the_limit():
     limit = app_module._RATE_LIMITS["public"]
     for _ in range(limit):
-        client.get("/healthz")
+        client.get("/health")
 
-    response = client.get("/healthz")
+    response = client.get("/health")
     assert response.status_code == 429
 
 
 def test_public_route_rate_limit_is_scoped_per_ip():
     limit = app_module._RATE_LIMITS["public"]
     for _ in range(limit):
-        client.get("/healthz", headers={"x-forwarded-for": "1.1.1.1"})
+        client.get("/health", headers={"x-forwarded-for": "1.1.1.1"})
 
     # a different caller (different X-Forwarded-For) must not be blocked
-    response = client.get("/healthz", headers={"x-forwarded-for": "2.2.2.2"})
+    response = client.get("/health", headers={"x-forwarded-for": "2.2.2.2"})
     assert response.status_code == 200
 
 
