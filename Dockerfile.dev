@@ -1,0 +1,24 @@
+FROM python:3.12-slim
+
+# System deps: curl (installers), git, ca-certs, gnupg (gcloud repo key)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    git \
+    ca-certificates \
+    gnupg \
+    && rm -rf /var/lib/apt/lists/*
+
+# gcloud CLI (installed as root, available to all users on PATH)
+RUN curl -sSL https://sdk.cloud.google.com | bash -s -- --disable-prompts --install-dir=/opt
+ENV PATH="/opt/google-cloud-sdk/bin:${PATH}"
+
+# Non-root user for all actual dev work
+RUN useradd --create-home --shell /bin/bash builder
+USER builder
+WORKDIR /home/builder/app
+
+# uv (per-user install, isolated from system Python)
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/home/builder/.local/bin:${PATH}"
+
+CMD ["/bin/bash"]
