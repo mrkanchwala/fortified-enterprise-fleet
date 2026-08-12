@@ -27,6 +27,12 @@ COLLECTION_PORTFOLIO_ENGAGEMENTS = "demo_portfolio_engagements"  # real client/s
 COLLECTION_GROWTH_SNAPSHOT = "demo_growth_snapshot"  # static real Won-value snapshot, trailing vs prior quarter
 COLLECTION_SALES_PIPELINE = "demo_sales_pipeline"  # static real contract-stage distribution
 
+# Bookkeeping the demo stream owns. Currently one document, holding the running
+# tally of audit entries the pruner has removed, so the lifetime action count
+# survives pruning (see telemetry.AuditLogger.count_all).
+COLLECTION_STATS = "fleet_stats"
+AUDIT_COUNTER_DOC = "audit_counter"
+
 # Payment-Followup graduated escalation threshold (days overdue, or reminder count — whichever first).
 OVERDUE_ESCALATION_DAYS = 30
 OVERDUE_ESCALATION_REMINDER_COUNT = 2

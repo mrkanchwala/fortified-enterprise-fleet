@@ -62,12 +62,36 @@ _RATE_LIMITS = {
 _request_log: dict[tuple[str, str], list[float]] = defaultdict(list)
 
 
+# Proxies we operate, and therefore trust to have appended honestly. Anything
+# else in the chain may have been forged by the caller. Comma-separated env var.
+_TRUSTED_PROXY_IPS = frozenset(
+    part.strip() for part in (os.environ.get("TRUSTED_PROXY_IPS") or "").split(",") if part.strip()
+)
+
+
 def _client_ip(request: Request) -> str:
-    """Cloud Run sits behind Google's load balancer — the real caller is the
-    first hop in X-Forwarded-For, not request.client.host (that's the LB)."""
+    """Rightmost X-Forwarded-For entry that isn't one of our own proxies.
+
+    This previously returned the FIRST entry, which is simply whatever the
+    caller chose to send, so a rotating X-Forwarded-For defeated the rate
+    limiter outright — measured 2026-08-12: 40/40 requests sailed through a
+    30/min bucket, while the same 40 with a fixed header correctly produced 10
+    429s. Every proxy in the chain *appends*, so a value the client forged can
+    only ever sit to the LEFT of one a real proxy added. Walking right-to-left
+    and skipping our own proxies lands on the first entry the caller could not
+    have controlled.
+
+    Correct for both ingress paths: straight to the run.app URL (Google appends
+    the true client IP last), and via the nginx reverse proxy on the Quadriga
+    VPS (nginx appends the true client, then Google appends the VPS IP, which
+    TRUSTED_PROXY_IPS skips — without that every visitor arriving through
+    quadrigasolutions.com would share one bucket and throttle each other).
+    """
     forwarded = request.headers.get("x-forwarded-for")
     if forwarded:
-        return forwarded.split(",")[0].strip()
+        for candidate in reversed([p.strip() for p in forwarded.split(",") if p.strip()]):
+            if candidate not in _TRUSTED_PROXY_IPS:
+                return candidate
     return request.client.host if request.client else "unknown"
 
 
@@ -148,7 +172,10 @@ def tick(request: Request, x_fleet_runtime_token: str | None = Header(default=No
     db = get_db()
     stream = demo_stream.tick(db)
     agents = runtime.run_all_cycles(db)
-    return {"stream": stream, "agents": agents}
+    # After the agents have written this beat's entries, not before — pruning
+    # first would trim a window the fleet is about to add to.
+    audit_pruned = demo_stream.prune_audit_log(db)
+    return {"stream": stream, "agents": agents, "audit_pruned": audit_pruned}
 @app.post("/reseed")
 def reseed(request: Request, x_fleet_runtime_token: str | None = Header(default=None)) -> dict:
     """Resets the demo dataset to its initial state.

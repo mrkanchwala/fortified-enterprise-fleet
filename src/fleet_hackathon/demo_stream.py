@@ -32,6 +32,9 @@ import random
 from datetime import UTC, datetime, timedelta
 
 from fleet_hackathon.config import (
+    AUDIT_COUNTER_DOC,
+    COLLECTION_AUDIT_LOG,
+    COLLECTION_STATS,
     COLLECTION_DEALS,
     COLLECTION_INVOICES,
     COLLECTION_LEADS,
@@ -223,6 +226,52 @@ def prune(db, cap: int = MAX_INJECTED_PER_COLLECTION) -> dict:
         "deals_removed": len(_prune_collection(db, COLLECTION_DEALS, cap)),
         "invoices_removed": len(_prune_collection(db, COLLECTION_INVOICES, cap)),
     }
+
+
+MAX_AUDIT_LOG_ENTRIES = 1_000
+# Drain gradually. The first run after this shipped had ~1,650 entries to clear,
+# and deleting them all inside one scheduled request risks the 300s deadline.
+AUDIT_PRUNE_PER_RUN = 500
+
+
+def prune_audit_log(db, cap: int = MAX_AUDIT_LOG_ENTRIES, max_per_run: int = AUDIT_PRUNE_PER_RUN) -> int:
+    """Bounds the audit log, banking what it removes.
+
+    Nothing pruned this collection before, so it grew without limit — roughly
+    50-95 entries per tick, 48 ticks a day, projecting to 120k-228k documents by
+    the Oct 1 judging deadline. That matters beyond storage: count() is billed
+    per 1,000 index entries matched, so an unbounded log turned every dashboard
+    load into a linearly-growing read cost, and the free-tier read quota is what
+    would have run out first (taking the page down for the rest of that day).
+
+    Deletions are banked in a counter document so count_all() still reports the
+    true lifetime total rather than merely what survived.
+
+    Uses count() + order_by/limit rather than streaming the collection — a full
+    stream would itself cost one read per stored document, every tick, which is
+    the very cost this is here to remove.
+    """
+    try:
+        total = int(db.collection(COLLECTION_AUDIT_LOG).count().get()[0][0].value)
+    except Exception:  # noqa: BLE001 - a backend without count() simply skips pruning
+        return 0
+    excess = min(total - cap, max_per_run)
+    if excess <= 0:
+        return 0
+
+    stale = db.collection(COLLECTION_AUDIT_LOG).order_by("timestamp").limit(excess).stream()
+    removed = 0
+    for doc in stale:
+        db.collection(COLLECTION_AUDIT_LOG).document(doc.id).delete()
+        removed += 1
+    if not removed:
+        return 0
+
+    counter = db.collection(COLLECTION_STATS).document(AUDIT_COUNTER_DOC)
+    snap = counter.get()
+    banked = int((snap.to_dict() or {}).get("pruned", 0)) if getattr(snap, "exists", False) else 0
+    counter.set({"pruned": banked + removed}, merge=True)
+    return removed
 
 
 def tick(db, now: datetime | None = None, rng: random.Random | None = None, cap: int = MAX_INJECTED_PER_COLLECTION) -> dict:

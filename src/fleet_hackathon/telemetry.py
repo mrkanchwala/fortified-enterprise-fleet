@@ -12,7 +12,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from fleet_hackathon.config import COLLECTION_AUDIT_LOG
+from fleet_hackathon.config import AUDIT_COUNTER_DOC, COLLECTION_AUDIT_LOG, COLLECTION_STATS
 
 
 @dataclass
@@ -83,15 +83,38 @@ class AuditLogger:
     def count_all(self) -> int | None:
         """Lifetime audit-entry count, or None if the backend can't aggregate.
 
-        The dashboard renders only a capped slice of the log, so it needs the
-        true total separately. Uses Firestore's server-side count() aggregation
-        rather than streaming the collection, so the cost stays flat as the log
-        grows past the render cap. Returns None (rather than raising) when the
-        backend has no aggregation support, so the caller can fall back — this
-        renders a judge-facing page, and a missing counter must never 500 it.
+        The dashboard renders only a capped slice, so it needs the true total
+        separately. The log is also pruned now (demo_stream.prune_audit_log), so
+        a plain count() of the live collection would report only what's retained
+        — the pruner banks every deletion in a counter document, and lifetime is
+        banked + currently stored.
+
+        Both terms stay O(1): one document get, plus a count() aggregation that
+        holds at ~1 read because pruning keeps the collection bounded. Before
+        pruning existed this grew linearly — Firestore bills count() per 1,000
+        index entries matched, so an unbounded log made every dashboard load
+        progressively more expensive (projected ~120k-228k documents, i.e.
+        120-228 reads per load, by the Oct 1 judging deadline).
+
+        Returns None rather than raising when the backend has no aggregation
+        support, so the caller can fall back — this renders a judge-facing page
+        and a missing counter must never 500 it.
         """
         try:
             result = self._db.collection(COLLECTION_AUDIT_LOG).count().get()
-            return int(result[0][0].value)
+            live = int(result[0][0].value)
         except Exception:  # noqa: BLE001 - deliberate fail-soft, see docstring
             return None
+        return live + self._pruned_offset()
+
+    def _pruned_offset(self) -> int:
+        """How many entries the pruner has removed over this deployment's life.
+        Missing counter (fresh project, or a backend without it) reads as 0,
+        which degrades to "count what's stored" rather than failing."""
+        try:
+            snap = self._db.collection(COLLECTION_STATS).document(AUDIT_COUNTER_DOC).get()
+        except Exception:  # noqa: BLE001 - see count_all
+            return 0
+        if not getattr(snap, "exists", False):
+            return 0
+        return int((snap.to_dict() or {}).get("pruned", 0))
