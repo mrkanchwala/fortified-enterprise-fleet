@@ -602,6 +602,16 @@ def _render_needs_your_attention(manager_rows: list[dict], flagged_managers: lis
 
 
 _KANBAN_VISIBLE_LOG_CAP = 3
+# 2026-08-12 page-weight pass. Measured live: 135,939 B, of which 74 KB was the
+# *same* 200-entry audit slice rendered twice — once as kanban mini-log entries
+# (every overflow entry sat inside the collapsed <details>, hidden but fully in
+# the DOM) and again as full activity-log rows below it. Entity rows were never
+# the driver: the whole page carried 7 <tr> outside the activity log, so the
+# demo_stream prune cap is not the lever here. The overflow drill-down now stops
+# at 13 entries per agent (the complete log sits directly below, so no
+# information is lost) and the activity log renders 75 rows instead of 200.
+_KANBAN_OVERFLOW_LOG_CAP = 13
+_ACTIVITY_LOG_RENDER_CAP = 75
 
 
 def _mini_log_entry_html(e: dict) -> str:
@@ -644,7 +654,7 @@ def _render_kanban(registry: AgentRegistry, entries_by_agent: dict[str, list[dic
 
         agent_entries = entries_by_agent.get(agent_name, [])
         visible = agent_entries[:_KANBAN_VISIBLE_LOG_CAP]
-        overflow = agent_entries[_KANBAN_VISIBLE_LOG_CAP:]
+        overflow = agent_entries[_KANBAN_VISIBLE_LOG_CAP:_KANBAN_OVERFLOW_LOG_CAP]
         if visible:
             log_items = "".join(_mini_log_entry_html(e) for e in visible)
             if overflow:
@@ -732,7 +742,12 @@ def render(db) -> str:
     registry = AgentRegistry(db)
     audit_logger = AuditLogger(db)
 
-    entries = audit_logger.list_recent(limit=200)
+    entries = audit_logger.list_recent(limit=_ACTIVITY_LOG_RENDER_CAP)
+    # The rendered slice is capped, so report the real lifetime total separately
+    # rather than letting the cap masquerade as the fleet's whole history.
+    total_actions = audit_logger.count_all()
+    if total_actions is None:
+        total_actions = len(entries)
     entries_by_agent: dict[str, list[dict]] = {}
     for entry in entries:
         entries_by_agent.setdefault(entry.get("agent_name"), []).append(entry)
@@ -757,7 +772,7 @@ def render(db) -> str:
         f'<span class="freshness">{_esc(_freshness_label(entries))}</span>'
         '<span class="meta-sep">·</span>'
         f'<span class="meta-chip">{agent_count} automated assistants</span>'
-        f'<span class="meta-chip">{len(entries)} actions logged</span>'
+        f'<span class="meta-chip">{total_actions:,} actions logged</span>'
         f'<span class="meta-chip meta-chip--{scenario_tone}">Safety check: {scenario_value}</span>'
         "</div>"
     )

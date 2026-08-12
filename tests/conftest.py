@@ -1,6 +1,6 @@
 """A minimal in-memory fake implementing the subset of the google-cloud-firestore
 client surface this codebase actually uses (collection/document/set/get/delete/
-stream/add/order_by/limit). Lets capability/registry/telemetry/gateway/actions/
+stream/add/order_by/limit/count). Lets capability/registry/telemetry/gateway/actions/
 agents/dashboard all be tested without a real Firestore project or network call —
 every production module in src/fleet_hackathon takes `db` as a parameter rather
 than importing google.cloud.firestore directly, specifically to make this possible.
@@ -58,6 +58,22 @@ class _FakeQuery:
         return [_FakeDocSnapshot(doc_id, data) for doc_id, data in self._docs]
 
 
+class _FakeAggregationResult:
+    def __init__(self, value):
+        self.value = value
+
+
+class _FakeAggregationQuery:
+    """Mirrors the real client's count() return shape: get() yields a list of
+    result *rows*, each a list of aggregation results."""
+
+    def __init__(self, value):
+        self._value = value
+
+    def get(self):
+        return [[_FakeAggregationResult(self._value)]]
+
+
 class _FakeCollectionRef:
     def __init__(self, store, name):
         self._store = store
@@ -78,6 +94,9 @@ class _FakeCollectionRef:
     def order_by(self, field, direction="ASCENDING"):
         coll = self._store.get(self._name, {})
         return _FakeQuery(list(coll.items())).order_by(field, direction)
+
+    def count(self):
+        return _FakeAggregationQuery(len(self._store.get(self._name, {})))
 
 
 class FakeFirestore:

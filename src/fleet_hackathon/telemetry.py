@@ -79,3 +79,19 @@ class AuditLogger:
             .limit(limit)
         )
         return [doc.to_dict() for doc in query.stream()]
+
+    def count_all(self) -> int | None:
+        """Lifetime audit-entry count, or None if the backend can't aggregate.
+
+        The dashboard renders only a capped slice of the log, so it needs the
+        true total separately. Uses Firestore's server-side count() aggregation
+        rather than streaming the collection, so the cost stays flat as the log
+        grows past the render cap. Returns None (rather than raising) when the
+        backend has no aggregation support, so the caller can fall back — this
+        renders a judge-facing page, and a missing counter must never 500 it.
+        """
+        try:
+            result = self._db.collection(COLLECTION_AUDIT_LOG).count().get()
+            return int(result[0][0].value)
+        except Exception:  # noqa: BLE001 - deliberate fail-soft, see docstring
+            return None
