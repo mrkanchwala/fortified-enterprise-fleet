@@ -1,28 +1,57 @@
 # Fortified Enterprise Fleet
 
-A multi-agent back-office fleet for SMB operations, built for the All Things Agentic hackathon (Fortified Enterprise Fleet track).
+Built for the All Things Agentic hackathon, Fortified Enterprise Fleet track.
 
 ## Live demo
 
-- https://quadrigasolutions.com/agent-fleet/
-- Direct Cloud Run URL: https://agent-fleet-758180534444.us-central1.run.app
+Dashboard (public, read-only): https://quadrigasolutions.com/agent-fleet/
+
+Direct Cloud Run URL: https://agent-fleet-758180534444.us-central1.run.app
 
 ## What it does
 
-Five specialized agents run against a shared CRM dataset: Outreach-Check, Invoice, Payment-Followup, Account-Management, and Analytics. Each agent sits behind a common Registry, Gateway, and Model Armor layer, with OpenTelemetry tracing across every run. A dashboard shows the fleet's current state (kanban view) and an audit trail of every action taken.
+Five agents run a small business's back office: Outreach-Check, Invoice, Payment-Followup, Account-Management, and Analytics. Each declares its own capability scope and success criterion before it runs. A shared dispatcher enforces that scope centrally, so an agent has no function or credential outside what it declared. Every action and every human escalation is logged and replayable in the dashboard's audit trail.
 
-Every agent is human-gated: an operator flips it on or off, and the system never enables, disables, or otherwise modifies its own fleet. Account-Management's delivery-status actions fail closed rather than guess. The fleet's own runtime state (agent status, audit log, cash events) lives in Firestore, refreshed on a schedule so the dashboard reflects a live, moving system rather than a static demo.
+Outreach-Check has no email-send capability wired in at all. A bad first contact with a lead is hard to undo in a relationship sense, so that step stays gated to a human. Invoice and Payment-Followup act autonomously within their declared scope. Payment-Followup varies its tone and frequency by days overdue, and escalates to a human once a stated threshold is crossed.
+
+## Fleet track component mapping
+
+Judged against the track's four named categories:
+
+| Category | Component | Where it lives |
+|---|---|---|
+| Discovery & Lifecycle | Agent Registry | Firestore capability-declaration store |
+| Core Execution & State | Memory Bank | Firestore per-agent state (e.g. Payment-Followup's `reminders_sent`) |
+| Core Execution & State | Agent Runtime | Cloud Scheduler-driven periodic runs, background and async |
+| Security & Governance | Agent Identity | Capability scope declared and enforced per agent |
+| Security & Governance | Agent Gateway | Single dispatcher every agent routes actions through |
+| Security & Governance | Model Armor | Prompt-injection and PII filter on any ingested text (e.g. simulated lead replies) |
+| Telemetry | Agent Observability | Audit log and drift telemetry, fields aligned to OTel semantic conventions |
 
 ## Architecture
 
-Single FastAPI service on Cloud Run:
+One FastAPI service on Cloud Run.
 
-- `GET /` and `GET /health` — public, read-only dashboard.
-- `POST /run/{agent_name}` and `POST /tick` — gated by an `X-Fleet-Runtime-Token` header, checked with a constant-time comparison, and rate-limited per client IP (in-memory sliding window, backed by an nginx flood guard in front of it).
-- Cloud Scheduler triggers `/tick` every 30 minutes to keep the demo data moving.
-- Firestore holds fleet state, audit log, and demo CRM records. The audit log self-prunes on a cap so it can't grow unbounded.
+- `GET /` and `GET /health`: public, read-only dashboard.
+- `POST /run/{agent_name}` and `POST /tick`: gated by an `X-Fleet-Runtime-Token` header, checked with a constant-time comparison, rate-limited per client IP.
+- Cloud Scheduler calls `/tick` every 30 minutes. Each call injects a small batch of fresh work, runs all five agents over it, and prunes the oldest injected records.
+- Firestore holds fleet state, the audit log, and demo CRM records. The audit log prunes itself on a cap so it can't grow unbounded.
 
-## Stack
+## Data
+
+The CRM data behind this demo is simulated, seeded by `seed_demo_data.py` and refreshed by the `/tick` cycle above. This is not real transaction history.
+
+## What's real vs. roadmap
+
+Built and live: all five agents, the capability, gateway, armor, and observability layers, the public dashboard, scheduled autonomous runs, and human escalation on the SLA and threshold cases described above.
+
+Out of scope for this entry: account-management handoff to a human closer, project-status follow-through, a marketing case-study trigger, a CEO digest, HR performance tracking.
+
+## Credential handling
+
+`FLEET_RUNTIME_TOKEN` is provisioned through Secret Manager and injected at deploy time. It is never hardcoded or committed.
+
+## Technologies used
 
 Google ADK, Gemini, FastAPI, Firestore, Cloud Run, Cloud Scheduler, OpenTelemetry, uv.
 
@@ -34,15 +63,26 @@ export GOOGLE_CLOUD_PROJECT=<your-gcp-project>
 uv run uvicorn fleet_hackathon.app:app --reload
 ```
 
-## Tests
+## Run the tests
 
 ```bash
 uv run pytest
 ```
 
+## Deploy
+
+The production image builds from `Dockerfile` (`uv sync --frozen --no-dev`, non-root user, `uvicorn` on port 8080). Deployed to Cloud Run with `--min-instances=1` so the first visitor doesn't pay a cold start.
+
+## Findings and learnings
+
+- The rate limiter's first version checked `X-Forwarded-For`'s first entry, a value the caller controls directly. A rotating header put 40 of 40 requests through a 30-per-minute bucket meant to block exactly that. Fixed by walking the proxy chain from the right and skipping trusted hops.
+- That fix, verified on the direct Cloud Run URL, still had a gap on the nginx-proxied vanity URL: traffic egressed over two IPs and split across two separate buckets. A fix verified on one ingress path is not a verified fix.
+- A Secret Manager value created with `echo` carried a trailing newline. Every token-gated route rejected every request, silently, until the mismatch was traced to a 65-byte secret behind a 64-character token.
+- The audit log had no pruning. Storage cost and page weight both grew unbounded until a cap and a server-side count were added.
+
 ## Built by
 
-[Quadriga Automations](https://quadrigasolutions.com) — AI automation infrastructure for marketing, sales, operations, and engineering teams.
+Quadriga Automations (https://quadrigasolutions.com), AI automation infrastructure for marketing, sales, operations, and engineering teams.
 
 ## License
 
