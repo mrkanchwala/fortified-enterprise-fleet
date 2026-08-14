@@ -12,7 +12,9 @@ Direct Cloud Run URL: https://agent-fleet-758180534444.us-central1.run.app
 
 Five agents run a small business's back office: Outreach-Check, Invoice, Payment-Followup, Account-Management, and Analytics. Each declares its own capability scope and success criterion before it runs. A shared dispatcher enforces that scope centrally, so an agent has no function or credential outside what it declared. Every action and every human escalation is logged and replayable in the dashboard's audit trail.
 
-Outreach-Check has no email-send capability wired in at all. A bad first contact with a lead is hard to undo in a relationship sense, so that step stays gated to a human. Invoice and Payment-Followup act autonomously within their declared scope. Payment-Followup varies its tone and frequency by days overdue, and escalates to a human once a stated threshold is crossed.
+Outreach-Check has no email-send action in its declared scope. A bad first contact with a lead is hard to undo in a relationship sense, so that step stays gated to a human, on purpose. Invoice and Payment-Followup act autonomously within their declared scope, and their sends run through a real, tested Gmail SMTP notifier (dependency-injected, same pattern as the Firestore client). Payment-Followup varies its tone and frequency by days overdue, and escalates to a human once a stated threshold is crossed.
+
+The live deployment runs that notifier on its no-op fallback: every send is still logged and audited, but no message leaves the service, because no Gmail credential was provisioned into the deployed project. A one-off local test using an already-authorized tool confirmed the same dispatch content lands in a real inbox, without adding a new credential to the deployed attack surface for a demo.
 
 ## Fleet track component mapping
 
@@ -50,6 +52,8 @@ Out of scope for this entry: account-management handoff to a human closer, proje
 ## Credential handling
 
 `FLEET_RUNTIME_TOKEN` is provisioned through Secret Manager and injected at deploy time. It is never hardcoded or committed.
+
+The Gmail notifier reads its credential from environment variables the deployed service never sets, by decision, not by omission: adding live email meant a new SMTP credential inside the deployed project, and that cost was judged not worth paying for a demo. See "What it does" above.
 
 ## Technologies used
 
