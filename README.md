@@ -2,11 +2,13 @@
 
 Built for the All Things Agentic hackathon, Fortified Enterprise Fleet track.
 
-## Live demo
+## Status
 
-Dashboard (public, read-only): https://quadrigasolutions.com/agent-fleet/
+The hackathon is over and this project is no longer running. The hosted dashboard and its Cloud Run service were shut down in October 2026. This repository is archived and kept read-only for reference.
 
-Direct Cloud Run URL: https://agent-fleet-758180534444.us-central1.run.app
+## Demo video
+
+https://youtu.be/pdl1IxZLfW8
 
 ## What it does
 
